@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZIP Cracker - Quebrador de Senhas</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-unlock-alt"></i> ZIP Cracker - seja Um HACKERMAN(KKK)</h1>
+            <p class="tagline">Ferramenta de quebra de senhas de arquivos ZIP</p>
+        </header>
+
+        <main>
+            {{if not .loading}}
+            <div class="card">
+                <div class="card-header">
+                    <h2><i class="fas fa-upload"></i> Enviar arquivos</h2>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="/upload" enctype="multipart/form-data">
+                        <div class="form-group">
+                            <label for="zipfile"><i class="fas fa-file-archive"></i> Arquivo ZIP:</label>
+                            <div class="file-input-container">
+                                <input type="file" id="zipfile" name="zipfile" required>
+                                <label for="zipfile" class="custom-file-input">Escolher arquivo</label>
+                                <span id="zipfile-name" class="file-name">Nenhum arquivo selecionado</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="wordlist"><i class="fas fa-list"></i> Wordlist (.txt):</label>
+                            <div class="file-input-container">
+                                <input type="file" id="wordlist" name="wordlist" required>
+                                <label for="wordlist" class="custom-file-input">Escolher arquivo</label>
+                                <span id="wordlist-name" class="file-name">Nenhum arquivo selecionado</span>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-lock-open"></i> Quebrar senha
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {{else}}
+            <!-- Real-time progress card -->
+            <div class="card progress-card" id="progress-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-cog fa-spin"></i> Processando...</h2>
+                </div>
+                <div class="card-body">
+                    <div class="file-info">
+                        <p><strong>Arquivo ZIP:</strong> {{.zipFilename}}</p>
+                        <p><strong>Wordlist:</strong> {{.wordlistName}}</p>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-label">
+                            <span id="progress-status">Iniciando...</span> 
+                            <span id="progress-percentage">0%</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-details">
+                            <span id="progress-count">0</span> de <span id="progress-total">0</span> senhas testadas
+                        </div>
+                    </div>
+                    
+                    <div class="recent-attempts">
+                        <h3>Últimas senhas testadas:</h3>
+                        <ul id="recent-attempts-list"></ul>
+                            <li class="attempt-placeholder">Aguardando testes...</li>
+                        </ul>
+                    </div>
+                    
+                    <div id="loading-animation">
+                        <div class="dot-typing"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Result card will be dynamically shown when complete -->
+            <div class="card result-card hidden" id="result-card">
+                <div class="card-header">
+                    <h2 id="result-header"></h2>
+                </div>
+                <div class="card-body">
+                    <div class="status-message" id="result-message">
+                    </div>
+                </div>
+            </div>
+            {{end}}
+
+            {{if and .status (not .loading)}}
+            <div class="card result-card {{if .success}}success{{else}}error{{end}}">
+                <div class="card-header">
+                    <h2>
+                        {{if .success}}
+                        <i class="fas fa-check-circle"></i> Senha encontrada!
+                        {{else}}
+                        <i class="fas fa-times-circle"></i> Resultado
+                        {{end}}
+                    </h2>
+                </div>
+                <div class="card-body">
+                    <div class="status-message">
+                        {{if .success}}
+                        <p>A senha para o arquivo <strong>{{.zipFilename}}</strong> é:</p>
+                        <div class="password-box">
+                            <span>{{.password}}</span>
+                            <button id="copy-btn" onclick="copyPassword('{{.password}}')" class="btn btn-small">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        {{else}}
+                        <p>{{.status}}</p>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+
+            {{if .failedAttempts}}
+            <div class="card log-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-history"></i> Log de tentativas</h2>
+                </div>
+                <div class="card-body">
+                    <div class="log-container">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Senha tentada</th>
+                                    <th>Resultado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="password-log-body">
+                                <!-- Table content will be updated by JavaScript -->
+                            </tbody>
+                        </table>
+
+                        <div class="pagination-controls">
+                            <div class="pagination-info">
+                                Mostrando <span id="start-item">1</span> - <span id="end-item">{{if lt .pagination.pageSize (len .failedAttempts)}}{{.pagination.pageSize}}{{else}}{{len .failedAttempts}}{{end}}</span> 
+                                de <span id="total-items">{{len .failedAttempts}}{{if .success}} + 1{{end}}</span> tentativas
+                            </div>
+                            <div class="pagination-buttons">
+                                <button id="prev-page" class="btn btn-small" disabled>
+                                    <i class="fas fa-chevron-left"></i> Anterior
+                                </button>
+                                <span class="page-indicator">Página <span id="current-page">1</span> de <span id="total-pages">{{.pagination.totalPages}}</span></span>
+                                <button id="next-page" class="btn btn-small" {{if le .pagination.totalPages 1}}disabled{{end}}>
+                                    Próxima <i class="fas fa-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+            {{end}}
+            
+            <div class="card hidden" id="back-button-card">
+                <div class="card-body text-center">
+                    <button class="btn btn-primary" onclick="window.location.href='/'">
+                        <i class="fas fa-arrow-left"></i> Voltar ao início
+                    </button>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2023 ZIP Cracker | Ferramenta Educacional</p>
+        </footer>
+    </div>
+
+    <script>
+        {{if not .loading}}
+        document.getElementById('zipfile').addEventListener('change', function() {
+            document.getElementById('zipfile-name').textContent = this.files[0] ? this.files[0].name : 'Nenhum arquivo selecionado';
+        });
+        
+        document.getElementById('wordlist').addEventListener('change', function() {
+            document.getElementById('wordlist-name').textContent = this.files[0] ? this.files[0].name : 'Nenhum arquivo selecionado';
+        });
+        
+        function copyPassword(password) {
+            navigator.clipboard.writeText(password).then(() => {
+                const btn = document.getElementById('copy-btn');
+                btn.innerHTML = '<i class="fas fa-check"></i>';
+                btn.classList.add('copied');
+                
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fas fa-copy"></i>';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+
+        // Pagination handling
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!document.getElementById('password-log-body')) return;
+            
+            const failedAttempts = {{.failedAttempts}};
+            const successPassword = {{if .success}}"{{.password}}"{{else}}""{{end}};
+            const hasSuccess = {{if .success}}true{{else}}false{{end}};
+            const pageSize = {{.pagination.pageSize}};
+            let currentPage = 1;
+            const totalItems = failedAttempts.length + (hasSuccess ? 1 : 0);
+            const totalPages = Math.ceil(totalItems / pageSize);
+            
+            function updatePagination() {
+                document.getElementById('current-page').textContent = currentPage;
+                document.getElementById('total-pages').textContent = totalPages;
+                document.getElementById('prev-page').disabled = (currentPage === 1);
+                document.getElementById('next-page').disabled = (currentPage === totalPages);
+                
+                const startItem = (currentPage - 1) * pageSize + 1;
+                const endItem = Math.min(currentPage * pageSize, totalItems);
+                document.getElementById('start-item').textContent = startItem;
+                document.getElementById('end-item').textContent = endItem;
+            }
+            
+            function renderTable() {
+                const tableBody = document.getElementById('password-log-body');
+                tableBody.innerHTML = '';
+                
+                const startIdx = (currentPage - 1) * pageSize;
+                const endIdx = Math.min(startIdx + pageSize, failedAttempts.length);
+                
+                // Render failed attempts for current page
+                for (let i = startIdx; i < endIdx; i++) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${i + 1}</td>
+                        <td>${failedAttempts[i]}</td>
+                        <td><span class="failed-tag">Falhou</span></td>
+                    `;
+                    tableBody.appendChild(row);
+                }
+                
+                // Add success row if on the right page and success exists
+                if (hasSuccess) {
+                    const successIndex = failedAttempts.length;
+                    const successPageNumber = Math.ceil((successIndex + 1) / pageSize);
+                    
+                    if (currentPage === successPageNumber) {
+                        const row = document.createElement('tr');
+                        row.className = 'success-row';
+                        row.innerHTML = `
+                            <td>${successIndex + 1}</td>
+                            <td>${successPassword}</td>
+                            <td><span class="success-tag">Sucesso</span></td>
+                        `;
+                        tableBody.appendChild(row);
+                    }
+                }
+            }
+            
+            // Initial render
+            updatePagination();
+            renderTable();
+            
+            // Event listeners for pagination controls
+            document.getElementById('prev-page').addEventListener('click', function() {
+                if (currentPage > 1) {
+                    currentPage--;
+                    updatePagination();
+                    renderTable();
+                }
+            });
+            
+            document.getElementById('next-page').addEventListener('click', function() {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    updatePagination();
+                    renderTable();
+                }
+            });
+        });
+        {{else}}
+        // WebSocket connection for real-time updates
+        document.addEventListener('DOMContentLoaded', function() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsURL = `${wsProtocol}//${window.location.host}/ws`;
+            const socket = new WebSocket(wsURL);
+            
+            socket.onopen = function(e) {
+                console.log('WebSocket connection established');
+            };
+            
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                // Update progress
+                if (data.type === 'progress') {
+                    updateProgress(data);
+                }
+                
+                // Process completion
+                if (data.type === 'complete') {
+                    processComplete(data);
+                }
+                
+                // Handle errors
+                if (data.type === 'error') {
+                    showError(data);
+                }
+            };
+            
+            socket.onclose = function(event) {
+                if (event.wasClean) {
+                    console.log(`WebSocket connection closed cleanly, code=${event.code}, reason=${event.reason}`);
+                } else {
+                    console.error('WebSocket connection died');
+                }
+            };
+            
+            socket.onerror = function(error) {
+                console.error(`WebSocket error: ${error.message}`);
+            };
+            
+            function updateProgress(data) {
+                const progressBar = document.getElementById('progress-bar');
+                const progressPercentage = document.getElementById('progress-percentage');
+                const progressStatus = document.getElementById('progress-status');
+                const progressCount = document.getElementById('progress-count');
+                const progressTotal = document.getElementById('progress-total');
+                const recentList = document.getElementById('recent-attempts-list');
+                
+                // Calculate percentage
+                const percent = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0;
+                
+                // Update elements
+                progressBar.style.width = `${percent}%`;
+                progressPercentage.textContent = `${percent}%`;
+                progressStatus.textContent = data.status;
+                progressCount.textContent = data.progress;
+                progressTotal.textContent = data.total;
+                
+                // Update recent attempts list
+                if (data.recentFailed && data.recentFailed.length > 0) {
+                    recentList.innerHTML = '';
+                    data.recentFailed.forEach(password => {
+                        const li = document.createElement('li');
+                        li.className = 'failed-attempt';
+                        li.innerHTML = `<span class="attempt-password">${password}</span> <span class="attempt-result">Falhou</span>`;
+                        recentList.appendChild(li);
+                    });
+                }
+            }
+            
+            function processComplete(data) {
+                // Hide progress card
+                document.getElementById('progress-card').classList.add('hidden');
+                
+                // Show result card
+                const resultCard = document.getElementById('result-card');
+                const resultHeader = document.getElementById('result-header');
+                const resultMessage = document.getElementById('result-message');
+                
+                resultCard.classList.remove('hidden');
+                resultCard.classList.add(data.success ? 'success' : 'error');
+                
+                if (data.success) {
+                    resultHeader.innerHTML = '<i class="fas fa-check-circle"></i> Senha encontrada!';
+                    resultMessage.innerHTML = `
+                        <p>A senha para o arquivo é:</p>
+                        <div class="password-box">
+                            <span>${data.password}</span>
+                            <button id="copy-result-btn" onclick="copyResultPassword('${data.password}')" class="btn btn-small">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    resultHeader.innerHTML = '<i class="fas fa-times-circle"></i> Resultado';
+                    resultMessage.innerHTML = `<p>${data.status}</p>`;
+                }
+                
+                // Show back button
+                document.getElementById('back-button-card').classList.remove('hidden');
+                
+                // Define copy function
+                window.copyResultPassword = function(password) {
+                    navigator.clipboard.writeText(password).then(() => {
+                        const btn = document.getElementById('copy-result-btn');
+                        btn.innerHTML = '<i class="fas fa-check"></i>';
+                        btn.classList.add('copied');
+                        
+                        setTimeout(() => {
+                            btn.innerHTML = '<i class="fas fa-copy"></i>';
+                            btn.classList.remove('copied');
+                        }, 2000);
+                    });
+                };
+            }
+            
+            function showError(data) {
+                const progressCard = document.getElementById('progress-card');
+                progressCard.classList.add('error');
+                
+                const progressStatus = document.getElementById('progress-status');
+                progressStatus.textContent = data.status;
+                
+                // Show back button
+                document.getElementById('back-button-card').classList.remove('hidden');
+            }
+        });
+        {{end}}
+    </script>
+</body>
+</html>
